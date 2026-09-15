@@ -1,0 +1,8 @@
+{
+  "name": "portal",
+  "private": true,
+  "description": "The framed front doors for JM Portal and Cash Balancing. See README.md and RBAC/CLAUDE.md §49.",
+  "scripts": {
+    "test": "node test/frame.test.js"
+  }
+}

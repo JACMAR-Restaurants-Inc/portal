@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>JM Portal</title>
+<link rel="icon" type="image/png" href="jm-portal-icon.png">
+<link rel="apple-touch-icon" href="jm-portal-icon.png">
+<!-- JM Portal, shown inside a frame so a phone signed into several Google accounts
+     can open it. See frame.js and RBAC CLAUDE.md §49. -->
+<style>
+  html, body { margin:0; height:100%; background:#F3F6FB; }
+  iframe { position:fixed; inset:0; width:100%; height:100%; border:0; display:block; }
+  noscript p { font:15px/1.5 -apple-system, 'Segoe UI', sans-serif; padding:24px; }
+</style>
+</head>
+<body>
+  <iframe credentialless id="app" title="JM Portal"></iframe>
+  <noscript><p>JavaScript est requis. / JavaScript is required.</p></noscript>
+  <script>
+    window.FRAME = {
+      app: 'https://script.google.com/macros/s/AKfycbw9ITLeoTRo1qI-MkmkAdPpId7GeqwT6LgL8V9igMxkPpQmVvK_WYqtwhkIcU4GuTDh/exec',
+      key: 'portal',
+      // Light only, like the portal itself (RBAC CLAUDE.md §44).
+      prefs: ['lang'],
+      bg: { light: '#F3F6FB' }
+    };
+  </script>
+  <script src="frame.js"></script>
+</body>
+</html>

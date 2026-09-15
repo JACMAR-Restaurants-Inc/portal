@@ -1,0 +1,21 @@
+# Runs test/frame.test.js on every pull request and on main. No dependencies: the
+# test runs the real pages in a stub DOM with node built-ins only.
+#
+# It does not gate the deploy on its own - GitHub Pages publishes from main. Require
+# the "test" check in a branch ruleset for main to make a red run block the merge.
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm test

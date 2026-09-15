@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Cash Balancing</title>
+<link rel="icon" type="image/png" href="../cash-balancing-icon.png">
+<link rel="apple-touch-icon" href="../cash-balancing-icon.png">
+<!-- Cash Balancing, the RBAC trial deployment on the production script, shown inside
+     a frame so a phone signed into several Google accounts can open it. See
+     ../frame.js and RBAC CLAUDE.md §49. NOT version 36: Aylmer and Vanier keep their
+     own link. -->
+<style>
+  html, body { margin:0; height:100%; background:#1A1A1A; }
+  iframe { position:fixed; inset:0; width:100%; height:100%; border:0; display:block; }
+  noscript p { font:15px/1.5 -apple-system, 'Segoe UI', sans-serif; padding:24px; color:#F5F5F5; }
+</style>
+</head>
+<body>
+  <iframe credentialless id="app" title="Cash Balancing"></iframe>
+  <noscript><p>JavaScript est requis. / JavaScript is required.</p></noscript>
+  <script>
+    window.FRAME = {
+      app: 'https://script.google.com/macros/s/AKfycbzyfEGc760BCyS7OKbXQTzklaBdJGPnEG0c7-zkMFKurKRrlDPwiV7GDCXd9I5TINf-QQ/exec',
+      key: 'cash-balancing',
+      prefs: ['lang', 'theme'],
+      // The app's own grounds (safe-count Styles.html --dark-bg): charcoal, green in light.
+      bg: { dark: '#1A1A1A', light: '#F2F8F4' }
+    };
+  </script>
+  <script src="../frame.js"></script>
+</body>
+</html>

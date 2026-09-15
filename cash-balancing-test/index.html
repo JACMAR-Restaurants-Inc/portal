@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Cash Balancing (test)</title>
+<link rel="icon" type="image/png" href="../cash-balancing-icon.png">
+<!-- The Cash Balancing TEST script, which reads a duplicate spreadsheet, shown inside
+     a frame the same way as the real one. See ../frame.js and RBAC CLAUDE.md §49. -->
+<style>
+  html, body { margin:0; height:100%; background:#1A1A1A; }
+  iframe { position:fixed; inset:0; width:100%; height:100%; border:0; display:block; }
+  noscript p { font:15px/1.5 -apple-system, 'Segoe UI', sans-serif; padding:24px; color:#F5F5F5; }
+</style>
+</head>
+<body>
+  <iframe credentialless id="app" title="Cash Balancing (test)"></iframe>
+  <noscript><p>JavaScript est requis. / JavaScript is required.</p></noscript>
+  <script>
+    window.FRAME = {
+      app: 'https://script.google.com/macros/s/AKfycbw8ajAFSUJyMi9dPfTC3Wc7kSqZoNbqsPvEe8a5jXku-miS4NXgKbr__4GgocjI5cUb/exec',
+      // Its own key, so test and the real app never share a saved language or theme.
+      key: 'cash-balancing-test',
+      prefs: ['lang', 'theme'],
+      bg: { dark: '#1A1A1A', light: '#F2F8F4' }
+    };
+  </script>
+  <script src="../frame.js"></script>
+</body>
+</html>
