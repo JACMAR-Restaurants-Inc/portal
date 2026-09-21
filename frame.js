@@ -20,8 +20,10 @@
  *   key    a name for this page's saved preferences
  *   prefs  which preferences the app may save here: 'lang', 'theme'
  *   bg     { light, dark } - the ground behind the frame while it loads
+ *   ink    { light, dark } - the text on that ground, while it loads
+ *   acc    { light, dark } - the spinner on that ground, while it loads
  *
- * It does three things and nothing else:
+ * It does four things and nothing else:
  *
  * 1. PASSES ON A SIGN-IN. Google returns to auth-redirect, which forwards the
  *    one-time `code` here. Only state, code and error go to the app, and the code
@@ -39,6 +41,21 @@
  *
  * 3. PAINTS THE RIGHT GROUND while the frame loads, so a dark app does not flash
  *    white first.
+ *
+ * 4. SAYS SOMETHING WHILE THE APP LOADS. An Apps Script page takes about two
+ *    seconds to open cold, and about eight to come back from a sign-in, and until
+ *    it answers, this page is a coloured rectangle with an empty frame on it. That
+ *    reads as frozen. RBAC CLAUDE.md §25 already settled what to do, for the
+ *    auth-redirect page that sits between these two screens: "blank and a brief
+ *    message cost the same time; only one looks like it is working". So this paints
+ *    the app's own mark, a spinner and one line, on the ground it was going to paint
+ *    anyway, and clears it when the frame loads.
+ *
+ *    Presentation only. It passes nothing, stores nothing, and cannot change what
+ *    the app decides. It is built here rather than written into each page's HTML so
+ *    there is ONE copy of the markup, the words and the timing; the cost is that it
+ *    paints after this file loads rather than with the page, which is one small
+ *    request to this same origin against the seconds it is covering.
  */
 (function () {
   var cfg = window.FRAME || {};
@@ -59,20 +76,148 @@
     try { v = window.localStorage.getItem(storeKey(name)); } catch (e) {}
     return allowed(name, v) ? v : '';
   }
-  function paint() {
-    var bg = cfg.bg || {};
+
+  /**
+   * Dark or light, once, so the ground and the loading screen can never disagree
+   * about it. With nothing saved, follow the app's own default: Cash Balancing is
+   * dark unless the device asks for light (safe-count Styles.html).
+   */
+  function isDark() {
     var theme = readPref('theme');
-    // With nothing saved, follow the app's own default: Cash Balancing is dark unless
-    // the device asks for light (safe-count Styles.html).
-    var dark = theme ? theme === 'dark'
-      : !(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
-    var c = (dark ? bg.dark : bg.light) || bg.light;
+    if (theme) return theme === 'dark';
+    return !(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+  }
+
+  function paint() {
+    var dark = isDark();
+    var pick = function (set) { var s = set || {}; return (dark ? s.dark : s.light) || s.light; };
+    var c = pick(cfg.bg), ink = pick(cfg.ink), acc = pick(cfg.acc);
+    var root = document.documentElement;
     if (c) {
-      document.documentElement.style.background = c;
+      root.style.background = c;
       if (document.body) document.body.style.background = c;
     }
+    // The loading screen reads these, so a theme arriving mid-load recolours it too.
+    if (root.style.setProperty) {
+      if (c)   root.style.setProperty('--jm-bg', c);
+      if (ink) root.style.setProperty('--jm-ink', ink);
+      if (acc) root.style.setProperty('--jm-acc', acc);
+    }
     var lang = readPref('lang');
-    if (lang) document.documentElement.lang = lang;
+    if (lang) root.lang = lang;
+  }
+
+  // ------------------------------------------------- 4: saying it is working
+
+  // French first: it is the default on both products (RBAC CLAUDE.md §26). The
+  // sign-in line is auth-redirect's own wording, so the screen a person has just
+  // come from and this one read as one process rather than two pages.
+  var WORDS = {
+    open:   { fr: 'Ouverture de ',                    en: 'Opening ' },
+    signin: { fr: 'Connexion en cours…',              en: 'Signing you in…' },
+    slow:   { fr: 'Cela prend un peu plus de temps.', en: 'This is taking a little longer.' }
+  };
+  // The sign-in leg runs about eight seconds cold, so a second line after six says
+  // it is still going rather than leaving one unchanging screen (§48's own pattern).
+  var SLOW_AFTER_MS = 6000;
+  // If the frame's load event never arrives, this must not sit on top of a working
+  // app for ever. Uncovering early is the status quo; covering for ever is not.
+  var FAILSAFE_MS = 30000;
+  var FADE_MS = 220;
+
+  var CSS = [
+    '#jmload{position:fixed;inset:0;z-index:2;display:flex;flex-direction:column;',
+    'align-items:center;justify-content:center;gap:16px;padding:24px;',
+    'box-sizing:border-box;text-align:center;background:var(--jm-bg,#fff);',
+    'color:var(--jm-ink,#333);transition:opacity ', FADE_MS, 'ms ease;',
+    "font:400 15px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}",
+    '#jmload[data-done]{opacity:0;pointer-events:none}',
+    '#jmload img{width:56px;height:56px;display:block}',
+    '#jmspin{width:26px;height:26px;border-radius:50%;',
+    'border:3px solid rgba(128,128,128,.35);border-top-color:var(--jm-acc,#888);',
+    'animation:jmspin .8s linear infinite}',
+    // A flex item centred on the cross axis takes its CONTENT width, so a long
+    // enough line would overrun the box on both sides rather than wrap. Today's
+    // longest, "Ouverture de Cash Balancing (test)…", measures 253px inside a
+    // 360px viewport, so this is headroom rather than a fix - and one declaration
+    // is cheaper than finding out when an app with a longer name is added.
+    '#jmsay{margin:0;max-width:100%}',
+    '#jmwait{margin:0;max-width:100%;font-size:13px;opacity:.75}',
+    '@keyframes jmspin{to{transform:rotate(360deg)}}',
+    // A spinner that cannot spin is just a broken ring (auth-redirect's own rule).
+    '@media (prefers-reduced-motion:reduce){',
+    '#jmload{transition:none}',
+    '#jmspin{animation:none;border-right-color:var(--jm-acc,#888)}}'
+  ].join('');
+
+  function language() {
+    var saved = readPref('lang');
+    if (saved) return saved;
+    var nav = '';
+    try { nav = String(window.navigator && window.navigator.language || '').toLowerCase(); } catch (e) {}
+    return nav.indexOf('en') === 0 ? 'en' : 'fr';
+  }
+
+  var loading = null, slowTimer = null, failTimer = null;
+
+  function showLoading(signingIn) {
+    var style = document.createElement('style');
+    style.textContent = CSS;
+    (document.head || document.documentElement).appendChild(style);
+
+    var box = document.createElement('div');
+    box.id = 'jmload';
+    // Announced to a screen reader, which otherwise meets the same silence.
+    box.setAttribute('role', 'status');
+    box.setAttribute('aria-live', 'polite');
+
+    // The tab icon, which every page already declares and the app already owns.
+    // Taken from the page rather than configured again, so the two cannot drift.
+    var link = document.querySelector('link[rel="icon"]');
+    var href = link && link.getAttribute('href');
+    if (href) {
+      var img = document.createElement('img');
+      img.src = href;
+      img.alt = '';                       // decorative: the line below says it
+      box.appendChild(img);
+    }
+
+    var spin = document.createElement('div');
+    spin.id = 'jmspin';
+    spin.setAttribute('aria-hidden', 'true');
+    box.appendChild(spin);
+
+    var lang = language();
+    var say = document.createElement('p');
+    say.id = 'jmsay';
+    // textContent, never innerHTML: the title is ours, and it stays that way.
+    say.textContent = signingIn ? WORDS.signin[lang]
+                                : WORDS.open[lang] + (document.title || '') + '…';
+    box.appendChild(say);
+
+    var wait = document.createElement('p');
+    wait.id = 'jmwait';
+    wait.hidden = true;
+    wait.textContent = WORDS.slow[lang];
+    box.appendChild(wait);
+
+    (document.body || document.documentElement).appendChild(box);
+    loading = box;
+
+    slowTimer = setTimeout(function () { wait.hidden = false; }, SLOW_AFTER_MS);
+    failTimer = setTimeout(hideLoading, FAILSAFE_MS);
+  }
+
+  function hideLoading() {
+    if (slowTimer) { clearTimeout(slowTimer); slowTimer = null; }
+    if (failTimer) { clearTimeout(failTimer); failTimer = null; }
+    if (!loading) return;
+    var gone = loading;
+    loading = null;
+    gone.setAttribute('data-done', '');   // fades, then leaves
+    setTimeout(function () {
+      if (gone.parentNode) gone.parentNode.removeChild(gone);
+    }, FADE_MS);
   }
 
   // 1 and 2: what the app is given.
@@ -86,9 +231,13 @@
     var v = readPref(name);
     if (v) out.set('jm_' + name, v);
   });
+  // A `code` means Google has just sent them back, so this is the wait after
+  // signing in rather than the wait on opening. Same page, different sentence.
+  showLoading(!!incoming.get('code'));
   paint();
   var qs = out.toString();
   frame.src = qs ? cfg.app + '?' + qs : cfg.app;
+  frame.addEventListener('load', hideLoading);
   if (window.location.search) {
     try { window.history.replaceState(null, '', window.location.pathname); } catch (e) {}
   }
@@ -106,9 +255,15 @@
 
   window.addEventListener('message', function (ev) {
     var d = ev.data;
-    if (!d || typeof d !== 'object' || d.type !== 'jm-frame-pref') return;
+    if (!d || typeof d !== 'object') return;
+    if (d.type !== 'jm-frame-pref' && d.type !== 'jm-frame-ready') return;
     if (!APP_ORIGIN.test(String(ev.origin))) return;
     if (!insideOurFrame(ev.source)) return;
+    // The app saying it has drawn itself. The frame's own load event fires when the
+    // HtmlService wrapper loads, which can be a beat before the app's page paints,
+    // so an app that sends this is uncovered at exactly the right moment. Nothing
+    // sends it yet; the load event is what clears the screen today.
+    if (d.type === 'jm-frame-ready') { hideLoading(); return; }
     if (!allowed(d.name, d.value)) return;
     try { window.localStorage.setItem(storeKey(d.name), d.value); } catch (e) {}
     paint();

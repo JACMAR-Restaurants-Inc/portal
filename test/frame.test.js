@@ -29,10 +29,39 @@ function load(page) {
   return { html, inline };
 }
 
+// A DOM faithful enough that a page which stopped drawing something really has
+// nothing to find. A stub that always answers is how a missing element passes
+// (RBAC CLAUDE.md §65), so elements here are created, appended and removed for real.
+function El(tag) {
+  return {
+    tagName: tag, children: [], attrs: {}, style: {}, parentNode: null,
+    id: '', lang: '', textContent: '', hidden: false, src: '', alt: '',
+    setAttribute(k, v) { this.attrs[k] = String(v); },
+    getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
+    appendChild(c) { c.parentNode = this; this.children.push(c); return c; },
+    removeChild(c) {
+      const i = this.children.indexOf(c);
+      if (i >= 0) { this.children.splice(i, 1); c.parentNode = null; }
+    }
+  };
+}
+const find = (el, id) => {
+  if (!el) return null;
+  if (el.id === id) return el;
+  for (const c of el.children || []) { const hit = find(c, id); if (hit) return hit; }
+  return null;
+};
+const textOf = (el, id) => { const n = find(el, id); return n ? n.textContent : null; };
+// Null safe on purpose: a page that drew nothing must fail by name, not crash the
+// run and hide every assertion after it (RBAC CLAUDE.md §48).
+const attr   = (el, k) => (el ? el.getAttribute(k) : null);
+const hidden = (el, id) => { const n = find(el, id); return n ? n.hidden : null; };
+const starts = (s, p) => typeof s === 'string' && s.indexOf(p) === 0;
+
 // Runs a page: its inline config, then frame.js. Returns what happened.
 function run(page, opts) {
   opts = opts || {};
-  const { inline } = load(page);
+  const { html, inline } = load(page);
   const store = Object.assign({}, opts.stored || {});
   const listeners = [];
   const inner = {};                 // the HtmlService page, two frames inside ours
@@ -41,29 +70,68 @@ function run(page, opts) {
   contentWindow.parent = null;      // set below
   middle.parent = contentWindow;
   inner.parent = middle;
-  const frame = { contentWindow };
+  const frameLoad = [];
+  const frame = { contentWindow, addEventListener: (t, fn) => { if (t === 'load') frameLoad.push(fn); } };
   let replaced = null;
-  const docEl = { style: {}, lang: 'fr' };
+  const vars = {};
+  const docEl = El('html');
+  docEl.style.setProperty = (k, v) => { vars[k] = v; };
+  const head = El('head');
+  const body = El('body');
+  // The tab icon the real page declares, answered the way querySelector would.
+  const iconHref = (html.match(/<link rel="icon" type="image\/png" href="([^"]+)">/) || [])[1] || '';
+  const iconLink = El('link');
+  if (iconHref) iconLink.setAttribute('href', iconHref);
+  const title = (html.match(/<title>([^<]*)<\/title>/) || [])[1] || '';
+
+  // A clock we drive, so "after six seconds" is asserted rather than waited for.
+  let now = 0, seq = 0;
+  const timers = new Map();
+  const tick = (ms) => {
+    const until = now + ms;
+    for (;;) {
+      let next = null;
+      for (const [id, t] of timers) if (t.at <= until && (!next || t.at < next[1].at)) next = [id, t];
+      if (!next) break;
+      timers.delete(next[0]);
+      now = next[1].at;
+      next[1].fn();
+    }
+    now = until;
+  };
+
   const win = {
     location: { search: opts.search || '', pathname: '/portal/' + page.replace('index.html', '') },
     history: { replaceState: (a, b, u) => { replaced = u; } },
     localStorage: { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
     matchMedia: (q) => ({ matches: q === '(prefers-color-scheme: light)' ? !!opts.deviceLight : false }),
-    addEventListener: (t, fn) => { if (t === 'message') listeners.push(fn); }
+    addEventListener: (t, fn) => { if (t === 'message') listeners.push(fn); },
+    navigator: { language: 'language' in opts ? opts.language : 'fr-CA' },
+    setTimeout: (fn, ms) => { const id = ++seq; timers.set(id, { fn, at: now + (ms || 0) }); return id; },
+    clearTimeout: (id) => { timers.delete(id); }
   };
   contentWindow.parent = win;
   win.parent = win;
   win.window = win;
   const sandbox = Object.assign(win, {
-    document: { getElementById: (id) => (id === 'app' ? frame : null), documentElement: docEl, body: { style: {} } },
+    document: {
+      title,
+      getElementById: (id) => (id === 'app' ? frame : null),
+      querySelector: (sel) => (sel === 'link[rel="icon"]' && iconHref ? iconLink : null),
+      createElement: (tag) => El(tag),
+      documentElement: docEl, head, body
+    },
     URLSearchParams
   });
   vm.createContext(sandbox);
   inline.forEach(s => vm.runInContext(s, sandbox));
   vm.runInContext(FRAME_JS, sandbox);
   const send = (data, origin, source) => listeners.forEach(fn => fn({ data, origin, source }));
-  return { src: frame.src, replaced, store, send, inner, middle, contentWindow, docEl, body: sandbox.document.body,
-           cfg: sandbox.FRAME, listeners };
+  return { src: frame.src, replaced, store, send, inner, middle, contentWindow, docEl, body, head,
+           cfg: sandbox.FRAME, listeners, vars, tick, title, iconHref,
+           fireLoad: () => frameLoad.forEach(fn => fn()),
+           hasLoadListener: () => frameLoad.length > 0,
+           load: () => find(body, 'jmload') };
 }
 
 const GOOD_ORIGIN = 'https://n-abc123def-0lu-script.googleusercontent.com';
@@ -158,6 +226,169 @@ ok('Cash Balancing loads on charcoal by default', run(CB).body.style.background 
 ok('...on its light ground when the device asks', run(CB, { deviceLight: true }).body.style.background === '#F2F8F4');
 ok('...and a saved theme beats the device', run(CB, { deviceLight: true, stored: { 'jm.cash-balancing.theme': 'dark' } }).body.style.background === '#1A1A1A');
 ok('the portal is light whatever the device', run(PORTAL).body.style.background === '#F3F6FB');
+
+// ============================================================ the loading screen
+// An Apps Script page is blank for about 2s cold and about 8s coming back from a
+// sign-in. §25 settled what to do about that for auth-redirect and the framed doors
+// never got it: "blank and a brief message cost the same time; only one looks like
+// it is working". These assert the screen a person sees during that wait.
+
+const lum = (h) => {
+  const v = [0, 2, 4].map(i => parseInt(h.slice(1 + i, 3 + i), 16) / 255)
+    .map(c => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+};
+const ratio = (a, b) => {
+  const x = lum(a), y = lum(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+};
+
+for (const page of Object.keys(DEPLOY)) {
+  const P = page + ': ';
+  const r = run(page);
+  const box = r.load();
+
+  ok(P + 'says something the moment it starts waiting', !!box);
+  ok(P + '...with the app\'s own mark, the one on the tab',
+     !!box && box.children.some(c => c.tagName === 'img' && c.src === r.iconHref), r.iconHref);
+  ok(P + '...which is decorative, not a filename read aloud',
+     !!box && box.children.filter(c => c.tagName === 'img').every(c => c.alt === ''));
+  ok(P + '...a spinner, hidden from a screen reader',
+     !!find(box, 'jmspin') && find(box, 'jmspin').getAttribute('aria-hidden') === 'true');
+  ok(P + '...and a line of words', !!textOf(box, 'jmsay'));
+  ok(P + 'is announced rather than silent',
+     attr(box, 'role') === 'status' && attr(box, 'aria-live') === 'polite');
+
+  // The app is uncovered when its frame loads. Without this it sits over a working app.
+  ok(P + 'listens for the frame loading', r.hasLoadListener());
+  const r2 = run(page); const b2 = r2.load();
+  r2.fireLoad();
+  ok(P + '...and gets out of the way when it does', attr(b2, 'data-done') === '');
+  r2.tick(500);
+  ok(P + '...then leaves the page entirely', !!b2 && r2.load() === null && b2.parentNode === null);
+
+  // Covering a working app for ever is worse than uncovering one a beat early.
+  const r3 = run(page); const b3 = r3.load();
+  r3.tick(30000);
+  ok(P + 'uncovers the app even if the frame never reports loading',
+     attr(b3, 'data-done') === '');
+
+  // Colour: whatever ground this page paints, the words and spinner must read on it.
+  for (const theme of ['dark', 'light']) {
+    const cfg = run(page).cfg;
+    if (!cfg.bg[theme]) continue;
+    ok(P + 'its loading text reads on the ' + theme + ' ground',
+       ratio(cfg.ink[theme], cfg.bg[theme]) >= 4.5,
+       cfg.ink[theme] + ' on ' + cfg.bg[theme] + ' = ' + ratio(cfg.ink[theme], cfg.bg[theme]).toFixed(2));
+    ok(P + '...and so does its spinner',
+       ratio(cfg.acc[theme], cfg.bg[theme]) >= 3,
+       cfg.acc[theme] + ' on ' + cfg.bg[theme] + ' = ' + ratio(cfg.acc[theme], cfg.bg[theme]).toFixed(2));
+  }
+
+  // The whole point is that it changes nothing about the sign-in it is covering.
+  const signIn = run(page, { search: '?state=zz.x&code=4%2F0AX' });
+  ok(P + 'passes the app exactly what it did before',
+     signIn.src === execOf(DEPLOY[page]) + '?state=zz.x&code=4%2F0AX', signIn.src);
+}
+
+// --- which wait it is, and in which language
+(() => {
+  const open = run(PORTAL);
+  ok('opening names the app it is opening',
+     textOf(open.load(), 'jmsay') === 'Ouverture de ' + open.title + '…',
+     textOf(open.load(), 'jmsay'));
+  const back = run(PORTAL, { search: '?state=s.portal&code=c' });
+  // auth-redirect's own words, so the screen before this one and this one read as
+  // one process rather than two pages.
+  ok('coming back from Google says it is signing you in',
+     textOf(back.load(), 'jmsay') === 'Connexion en cours…', textOf(back.load(), 'jmsay'));
+  ok('...and those are the words auth-redirect already uses',
+     ['Connexion en cours…', 'Signing you in…'].every(w =>
+       fs.readFileSync(path.join(ROOT, '..', 'auth-redirect', 'index.html'), 'utf8').includes(w)));
+
+  ok('French by default, like both products',
+     starts(textOf(run(PORTAL, { language: 'fr-CA' }).load(), 'jmsay'), 'Ouverture'));
+  ok('...English for an English device',
+     starts(textOf(run(PORTAL, { language: 'en-CA' }).load(), 'jmsay'), 'Opening '));
+  ok('...and a saved language beats the device',
+     starts(textOf(run(PORTAL, { language: 'en-CA', stored: { 'jm.portal.lang': 'fr' } }).load(), 'jmsay'),
+            'Ouverture'));
+  ok('...a saved language is used for the sign-in line too',
+     textOf(run(PORTAL, { search: '?code=c', stored: { 'jm.portal.lang': 'en' } }).load(), 'jmsay')
+       === 'Signing you in…');
+})();
+
+// --- the eight second wait gets a second line, §48's own pattern
+(() => {
+  const r = run(PORTAL, { search: '?state=s.portal&code=c' });
+  const box = r.load();
+  ok('the "still going" line is there from the start, unshown', hidden(box, 'jmwait') === true);
+  r.tick(5900);
+  ok('...and stays unshown while the wait is still ordinary', hidden(box, 'jmwait') === true);
+  r.tick(200);
+  ok('...then shows once it has run long', hidden(box, 'jmwait') === false);
+  ok('...saying so in the reader\'s language',
+     textOf(box, 'jmwait') === 'Cela prend un peu plus de temps.', textOf(box, 'jmwait'));
+  const en = run(PORTAL, { language: 'en-CA' });
+  const enBox = en.load(); en.tick(6100);
+  ok('...or in English', textOf(enBox, 'jmwait') === 'This is taking a little longer.');
+})();
+(() => {
+  // A screen that has gone must not come back, or a loaded app is covered again.
+  const r = run(PORTAL);
+  const box = r.load();
+  r.fireLoad();
+  r.tick(20000);
+  ok('once it is gone nothing brings it back', hidden(box, 'jmwait') === true && r.load() === null);
+})();
+
+// --- the app may say it is ready, on the channel it already uses
+(() => {
+  const r = run(PORTAL);
+  const box = r.load();
+  r.send({ type: 'jm-frame-ready' }, GOOD_ORIGIN, r.inner);
+  ok('the app saying it is ready clears the screen', attr(box, 'data-done') === '');
+})();
+(() => {
+  const r = run(PORTAL);
+  const box = r.load();
+  r.send({ type: 'jm-frame-ready' }, 'https://evil.invalid', r.inner);
+  const stranger = { parent: null }; stranger.parent = stranger;
+  r.send({ type: 'jm-frame-ready' }, GOOD_ORIGIN, stranger);
+  ok('...but only from inside our own frame, on an Apps Script origin',
+     !!box && attr(box, 'data-done') === null);
+})();
+
+// --- the colours follow the theme, including one arriving mid-load
+ok('the loading screen is painted on Cash Balancing\'s charcoal',
+   run(CB).vars['--jm-bg'] === '#1A1A1A' && run(CB).vars['--jm-acc'] === '#FFC72C');
+ok('...on its light ground when the device asks',
+   run(CB, { deviceLight: true }).vars['--jm-bg'] === '#F2F8F4' &&
+   run(CB, { deviceLight: true }).vars['--jm-acc'] === '#1B5E37');
+ok('the portal\'s is light whatever the device',
+   run(PORTAL).vars['--jm-bg'] === '#F3F6FB' && run(PORTAL).vars['--jm-ink'] === '#0B2556');
+(() => {
+  const r = run(CB);
+  r.send({ type: 'jm-frame-pref', name: 'theme', value: 'light' }, GOOD_ORIGIN, r.inner);
+  ok('a theme arriving while it waits recolours the loading screen too',
+     r.vars['--jm-bg'] === '#F2F8F4' && r.vars['--jm-acc'] === '#1B5E37', JSON.stringify(r.vars));
+})();
+
+// --- two properties with no layout engine to check them (§26), read from the source
+ok('a spinner that cannot spin is drawn as a ring, not left broken',
+   /prefers-reduced-motion:reduce\)\{[^}]*#jmload\{transition:none\}[\s\S]*?animation:none/.test(FRAME_JS));
+ok('the loading screen covers the frame rather than sitting beside it',
+   /#jmload\{position:fixed;inset:0;z-index:2;/.test(FRAME_JS));
+// A centred flex item takes its content width, so a long enough line would run off
+// both edges rather than wrap. No title is close today (253px inside 360px, measured),
+// so this holds the headroom - and there is no layout engine here to catch losing it (§26).
+ok('a long line would wrap rather than run off the screen',
+   /#jmsay\{[^}]*max-width:100%/.test(FRAME_JS) && /#jmwait\{[^}]*max-width:100%/.test(FRAME_JS));
+// Comments stripped: the line in frame.js explaining this rule NAMES innerHTML, so
+// reading the raw file fails on its own explanation. Fourteenth time in this project
+// (RBAC CLAUDE.md §26, §33, §38, §44, §45, §52, §60...).
+const FRAME_CODE = FRAME_JS.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+ok('the words are written as text, never as markup', !/innerHTML/.test(FRAME_CODE));
 
 console.log('\nportal (framed front doors)');
 console.log('---------------------------');
