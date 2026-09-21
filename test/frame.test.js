@@ -9,8 +9,11 @@ const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
-let passed = 0; const failures = [];
+let passed = 0; const failures = []; const skipped = [];
 const ok = (label, cond, detail) => cond ? passed++ : failures.push(label + (detail ? '  [' + detail + ']' : ''));
+// A check that cannot run here must SAY so. A clean list of ok lines with a silent
+// omission reads as "everything was checked" (RBAC CLAUDE.md §35's UNPROBEABLE).
+const skip = (label, why) => skipped.push(label + '  [' + why + ']');
 
 const FRAME_JS = fs.readFileSync(path.join(ROOT, 'frame.js'), 'utf8');
 
@@ -302,9 +305,21 @@ for (const page of Object.keys(DEPLOY)) {
   // one process rather than two pages.
   ok('coming back from Google says it is signing you in',
      textOf(back.load(), 'jmsay') === 'Connexion en cours…', textOf(back.load(), 'jmsay'));
-  ok('...and those are the words auth-redirect already uses',
-     ['Connexion en cours…', 'Signing you in…'].every(w =>
-       fs.readFileSync(path.join(ROOT, '..', 'auth-redirect', 'index.html'), 'utf8').includes(w)));
+  // auth-redirect is a SEPARATE REPOSITORY. Checking our wording against its file
+  // works on a machine with both checked out side by side and cannot work in CI, where
+  // only this repo exists - reading it there threw ENOENT and took the whole run down,
+  // hiding every assertion after this line. So: checked when it is there, and
+  // announced as not checked when it is not. Never silently green.
+  const AR = path.join(ROOT, '..', 'auth-redirect', 'index.html');
+  const words = ['Connexion en cours…', 'Signing you in…'];
+  if (fs.existsSync(AR)) {
+    const ar = fs.readFileSync(AR, 'utf8');
+    ok('...and those are the words auth-redirect already uses', words.every(w => ar.includes(w)),
+       words.filter(w => !ar.includes(w)).join(' / '));
+  } else {
+    skip('the sign-in line matches auth-redirect\'s wording',
+         'auth-redirect is not checked out beside this repo');
+  }
 
   ok('French by default, like both products',
      starts(textOf(run(PORTAL, { language: 'fr-CA' }).load(), 'jmsay'), 'Ouverture'));
@@ -392,9 +407,12 @@ ok('the words are written as text, never as markup', !/innerHTML/.test(FRAME_COD
 
 console.log('\nportal (framed front doors)');
 console.log('---------------------------');
+skipped.forEach(sk => console.log('  SKIP  ' + sk));
 if (failures.length) {
   failures.forEach(f => console.log('  FAIL  ' + f));
-  console.log('\n' + failures.length + ' FAILED, ' + passed + ' passed');
+  console.log('\n' + failures.length + ' FAILED, ' + passed + ' passed' +
+              (skipped.length ? ', ' + skipped.length + ' skipped' : ''));
   process.exit(1);
 }
-console.log('  ' + passed + ' passed, 0 failed');
+console.log('  ' + passed + ' passed, 0 failed' +
+            (skipped.length ? ', ' + skipped.length + ' skipped' : ''));
