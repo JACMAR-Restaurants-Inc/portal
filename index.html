@@ -6,7 +6,23 @@
 <meta name="robots" content="noindex">
 <title>JM Portal</title>
 <link rel="icon" type="image/png" href="jm-portal-icon.png">
-<link rel="apple-touch-icon" href="jm-portal-icon.png">
+<!-- Add to home screen. The manifest is what lets Android offer to install this at
+     all, which it would not do while the portal was served from script.google.com
+     (RBAC CLAUDE.md §26 removed the old hand-written panel partly for that reason).
+     It is safe to save now for the other reason that panel was dropped: frame.js
+     strips the sign-in code out of this page's address, so a saved icon can never
+     carry a spent one (§52).
+
+     apple-touch-icon is its own file, inset on an opaque ground: iOS fills a
+     transparent icon with BLACK and rounds the corners off, which would eat the
+     door. apple-mobile-web-app-capable is deliberately NOT set - it would open the
+     icon with no Safari chrome, and sign-in has to leave for accounts.google.com
+     and come back. Until that round trip is tried on a real iPhone, an icon that
+     opens an ordinary Safari tab behaves exactly as the link does today. -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B2556">
+<meta name="apple-mobile-web-app-title" content="JM Portal">
+<link rel="apple-touch-icon" sizes="180x180" href="jm-portal-icon-180.png">
 <!-- JM Portal, shown inside a frame so a phone signed into several Google accounts
      can open it. See frame.js and RBAC CLAUDE.md §49. -->
 <style>

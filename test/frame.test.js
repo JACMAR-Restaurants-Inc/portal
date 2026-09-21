@@ -230,6 +230,117 @@ ok('...on its light ground when the device asks', run(CB, { deviceLight: true })
 ok('...and a saved theme beats the device', run(CB, { deviceLight: true, stored: { 'jm.cash-balancing.theme': 'dark' } }).body.style.background === '#1A1A1A');
 ok('the portal is light whatever the device', run(PORTAL).body.style.background === '#F3F6FB');
 
+// ============================================================ add to home screen
+// A manifest is what lets a phone offer to install this, and what decides how the
+// saved icon looks. Both are invisible from the page itself, so they are read here:
+// the real PNG headers, not the names of the files.
+
+// Width, height, colour type and whether the file carries any transparency at all,
+// read out of the PNG itself - an icon that is the wrong size or see-through is the
+// kind of thing nobody notices until it is on somebody's home screen.
+function pngInfo(file) {
+  const b = fs.readFileSync(path.join(ROOT, file));
+  const sig = b.slice(0, 8).toString('hex') === '89504e470d0a1a0a';
+  const out = { sig, w: b.readUInt32BE(16), h: b.readUInt32BE(20), colour: b[25], alpha: false };
+  for (let i = 8; i + 8 <= b.length; ) {
+    const len = b.readUInt32BE(i), type = b.slice(i + 4, i + 8).toString('ascii');
+    // The builder writes a tRNS chunk on every file, so its PRESENCE proves nothing.
+    // What matters is whether any palette entry in it is actually see-through.
+    if (type === 'tRNS') {
+      const t = b.slice(i + 8, i + 8 + len);
+      for (let k = 0; k < t.length; k++) if (t[k] < 255) out.alpha = true;
+    }
+    if (type === 'IEND') break;
+    i += 12 + len;
+  }
+  if (out.colour === 6 || out.colour === 4) out.alpha = true;   // RGBA / grey+alpha
+  return out;
+}
+
+// The portal is the one people are told to add to their home screen. Cash Balancing's
+// doors are reached from it, so they do not need one - but that is a decision, and it
+// lives here rather than being inferred from which files happen to exist.
+const MANIFEST_REQUIRED = ['index.html'];
+
+for (const page of Object.keys(DEPLOY)) {
+  const { html } = load(page);
+  const M = page + ': ';
+  const link = (html.match(/<link rel="manifest" href="([^"]+)">/) || [])[1];
+  if (!link) {
+    // A NAMED list, not "whatever happens to have one". Skipping any page without a
+    // manifest meant deleting the portal's link turned its checks green (same shape as
+    // guarded.test.js in the RBAC repo: the pages that must comply are written down).
+    if (MANIFEST_REQUIRED.indexOf(page) !== -1) ok(M + 'has a web app manifest', false, 'no link in the page');
+    else skip(M + 'has a web app manifest', 'this page does not offer one');
+    continue;
+  }
+
+  const mpath = path.join(path.dirname(page), link);
+  ok(M + 'links a manifest that exists', fs.existsSync(path.join(ROOT, mpath)), mpath);
+  let m = null;
+  try { m = JSON.parse(fs.readFileSync(path.join(ROOT, mpath), 'utf8')); } catch (e) { m = null; }
+  ok(M + '...which is valid JSON', !!m);
+  if (!m) continue;
+
+  // Without these a phone will not offer to install it at all.
+  ok(M + '...with a name and a short name', !!m.name && !!m.short_name);
+  ok(M + '...a start url inside this folder', m.start_url === './' && m.scope === './', m.start_url);
+  ok(M + '...and a display mode a phone can install',
+     ['standalone', 'minimal-ui', 'fullscreen'].indexOf(m.display) !== -1, m.display);
+
+  // The splash a phone paints before the page arrives. If it is not the ground the
+  // page itself paints, launching flashes one colour and then another.
+  const ground = (html.match(/html, ?body \{[^}]*background:(#[0-9A-Fa-f]{6})/) || [])[1];
+  ok(M + '...on the same ground the page paints, so launching does not flash',
+     !!ground && m.background_color.toLowerCase() === ground.toLowerCase(),
+     m.background_color + ' vs ' + ground);
+  const meta = (html.match(/<meta name="theme-color" content="(#[0-9A-Fa-f]{6})">/) || [])[1];
+  ok(M + '...and one theme colour, in the manifest and the page', !!meta && meta === m.theme_color,
+     m.theme_color + ' vs ' + meta);
+
+  // Every icon is real, and is the size it claims.
+  (m.icons || []).forEach(function (ic) {
+    const f = path.join(path.dirname(page), ic.src);
+    const there = fs.existsSync(path.join(ROOT, f));
+    ok(M + 'icon ' + ic.src + ' exists', there);
+    if (!there) return;
+    const info = pngInfo(f);
+    const want = String(ic.sizes).split('x').map(Number);
+    ok(M + '...is a PNG of the size it claims',
+       info.sig && info.w === want[0] && info.h === want[1], info.w + 'x' + info.h);
+  });
+
+  const any = (m.icons || []).filter(ic => (ic.purpose || 'any').split(' ').indexOf('any') !== -1)
+                             .map(ic => parseInt(ic.sizes, 10));
+  ok(M + '...and an install has both sizes it looks for',
+     any.some(n => n >= 192) && any.some(n => n >= 512), any.join(','));
+
+  // Android crops an icon to a circle or a squircle. A maskable one has to keep the
+  // mark inside the middle, and must not be see-through or the crop shows nothing.
+  const mask = (m.icons || []).filter(ic => String(ic.purpose || '').split(' ').indexOf('maskable') !== -1);
+  ok(M + '...and one drawn to survive being cropped round', mask.length >= 1);
+  mask.forEach(ic => ok(M + '...which is opaque, so the crop is not see-through',
+                        !pngInfo(path.join(path.dirname(page), ic.src)).alpha, ic.src));
+
+  // iOS does not read the manifest. It takes this, fills any transparency with BLACK
+  // and rounds the corners off - so it is its own file, opaque, with the mark inset.
+  const touch = (html.match(/<link rel="apple-touch-icon" sizes="180x180" href="([^"]+)">/) || [])[1];
+  ok(M + 'has a 180px apple-touch-icon', !!touch, touch);
+  if (touch) {
+    const info = pngInfo(path.join(path.dirname(page), touch));
+    ok(M + '...that really is 180x180', info.w === 180 && info.h === 180, info.w + 'x' + info.h);
+    ok(M + '...and is opaque, so iOS does not fill it with black', !info.alpha);
+    ok(M + '...and is not the same file as the tab icon', touch !== 'jm-portal-icon.png');
+  }
+
+  // Deliberate, and recorded so it is a decision rather than an omission: this would
+  // open the icon with no Safari chrome, and sign-in has to leave for Google.
+  // Comments stripped, because the comment in index.html explaining this decision has
+  // to NAME the tag it is declining to use. Same family as the innerHTML check above.
+  ok(M + 'does not claim iOS standalone until that round trip is tested',
+     !/apple-mobile-web-app-capable/.test(html.replace(/<!--[\s\S]*?-->/g, '')));
+}
+
 // ============================================================ the loading screen
 // An Apps Script page is blank for about 2s cold and about 8s coming back from a
 // sign-in. §25 settled what to do about that for auth-redirect and the framed doors
