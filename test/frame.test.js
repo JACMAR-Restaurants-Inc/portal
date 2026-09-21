@@ -385,8 +385,8 @@ ok('the loading screen covers the frame rather than sitting beside it',
 ok('a long line would wrap rather than run off the screen',
    /#jmsay\{[^}]*max-width:100%/.test(FRAME_JS) && /#jmwait\{[^}]*max-width:100%/.test(FRAME_JS));
 // Comments stripped: the line in frame.js explaining this rule NAMES innerHTML, so
-// reading the raw file fails on its own explanation. Fourteenth time in this project
-// (RBAC CLAUDE.md §26, §33, §38, §44, §45, §52, §60...).
+// reading the raw file fails on its own explanation. One more of the family RBAC
+// CLAUDE.md keeps counting (§26, §33, §38, §44, §45, §52, §60, §68).
 const FRAME_CODE = FRAME_JS.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 ok('the words are written as text, never as markup', !/innerHTML/.test(FRAME_CODE));
 
