@@ -117,9 +117,13 @@
     signin: { fr: 'Connexion en cours…',              en: 'Signing you in…' },
     slow:   { fr: 'Cela prend un peu plus de temps.', en: 'This is taking a little longer.' }
   };
-  // The sign-in leg runs about eight seconds cold, so a second line after six says
-  // it is still going rather than leaving one unchanging screen (§48's own pattern).
-  var SLOW_AFTER_MS = 6000;
+  // TWELVE, NOT SIX (owner, 2026-09-22): at six it fired "just as the app is
+  // opening", which is noise rather than reassurance - §68 measured the sign-in leg
+  // at about eight seconds cold, so six was inside an ordinary wait rather than
+  // past it. Twelve clears that, so an ordinary slow sign-in never shows this line
+  // and only a genuinely stuck one does. It must stay well under FAILSAFE_MS below,
+  // or the screen it explains is gone before the explanation arrives.
+  var SLOW_AFTER_MS = 12000;
   // If the frame's load event never arrives, this must not sit on top of a working
   // app for ever. Uncovering early is the status quo; covering for ever is not.
   var FAILSAFE_MS = 30000;

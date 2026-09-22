@@ -444,20 +444,40 @@ for (const page of Object.keys(DEPLOY)) {
        === 'Signing you in…');
 })();
 
-// --- the eight second wait gets a second line, §48's own pattern
+// --- a wait that runs long gets a second line, §48's own pattern
 (() => {
+  // READ FROM THE SOURCE, not pinned: the threshold moved from 6s to 12s on
+  // 2026-09-22 and a pinned number would have to be edited alongside it, which is
+  // how a test stops describing the rule. What matters is the rule.
+  const SLOW = Number((FRAME_JS.match(/SLOW_AFTER_MS = (\d+)/) || [])[1]);
+  const FAILSAFE = Number((FRAME_JS.match(/FAILSAFE_MS = (\d+)/) || [])[1]);
+  // §68 measured the sign-in leg at about eight seconds cold. Fire inside that and
+  // the line lands as the app arrives, which is what the owner reported.
+  ok('the still-going line waits longer than an ordinary cold sign-in',
+     SLOW >= 12000, SLOW + 'ms');
+  // And it must have time to be read before the failsafe takes the screen away.
+  ok('...and still leaves the screen up long enough to read it',
+     FAILSAFE - SLOW >= 5000, (FAILSAFE - SLOW) + 'ms between them');
+
   const r = run(PORTAL, { search: '?state=s.portal&code=c' });
   const box = r.load();
   ok('the "still going" line is there from the start, unshown', hidden(box, 'jmwait') === true);
-  r.tick(5900);
+  r.tick(SLOW - 100);
   ok('...and stays unshown while the wait is still ordinary', hidden(box, 'jmwait') === true);
   r.tick(200);
   ok('...then shows once it has run long', hidden(box, 'jmwait') === false);
   ok('...saying so in the reader\'s language',
      textOf(box, 'jmwait') === 'Cela prend un peu plus de temps.', textOf(box, 'jmwait'));
   const en = run(PORTAL, { language: 'en-CA' });
-  const enBox = en.load(); en.tick(6100);
+  const enBox = en.load(); en.tick(SLOW + 100);
   ok('...or in English', textOf(enBox, 'jmwait') === 'This is taking a little longer.');
+  // The case the owner actually reported: an ordinary slow open finishes BEFORE the
+  // line is due, so it is never seen at all.
+  const ok8 = run(PORTAL, { search: '?state=s.portal&code=c' });
+  const box8 = ok8.load();
+  ok8.tick(8500); ok8.fireLoad();
+  ok('...and an ordinary eight second sign-in never shows it',
+     hidden(box8, 'jmwait') === true);
 })();
 (() => {
   // A screen that has gone must not come back, or a loaded app is covered again.
