@@ -22,8 +22,33 @@ const FRAME_JS = fs.readFileSync(path.join(ROOT, 'frame.js'), 'utf8');
 const DEPLOY = {
   'index.html':                     'AKfycbw9ITLeoTRo1qI-MkmkAdPpId7GeqwT6LgL8V9igMxkPpQmVvK_WYqtwhkIcU4GuTDh',
   'cash-balancing/index.html':      'AKfycbzyfEGc760BCyS7OKbXQTzklaBdJGPnEG0c7-zkMFKurKRrlDPwiV7GDCXd9I5TINf-QQ',
-  'cash-balancing-test/index.html': 'AKfycbw8ajAFSUJyMi9dPfTC3Wc7kSqZoNbqsPvEe8a5jXku-miS4NXgKbr__4GgocjI5cUb'
+  'cash-balancing-test/index.html': 'AKfycbw8ajAFSUJyMi9dPfTC3Wc7kSqZoNbqsPvEe8a5jXku-miS4NXgKbr__4GgocjI5cUb',
+  'mcvaleurs/index.html':           'AKfycbwBY06magu_vrA6urF-XLqLeml4RINP5zGJrVIGkGavahVyuwD8zWF-vGlraBm33Zu4vQ',
+  'jre-tracker/index.html':         'AKfycbzgGly4KhUv3VW7uBvnB704nBFNW_OQwi7o0j1IHxq6M-z0z5WlFMS9xGXiheJUuLKD'
 };
+
+// DISCOVERED, THEN CHECKED AGAINST THAT LIST. This map used to be the only place a
+// page existed as far as the suite was concerned, so two pages added on 2026-09-22
+// were tested by nothing at all while the run stayed green - the same silence that
+// has caught this project repeatedly (RBAC CLAUDE.md §73, §80).
+//
+// Every index.html on disk must be declared above, and everything declared must
+// exist. A new framed page therefore fails this suite until somebody writes down
+// which deployment it frames, which is the one fact about it worth stating
+// deliberately.
+const onDisk = ['index.html'].concat(
+  fs.readdirSync(ROOT, { withFileTypes: true })
+    .filter(d => d.isDirectory() && ['test', 'node_modules', '.git'].indexOf(d.name) === -1 &&
+                 fs.existsSync(path.join(ROOT, d.name, 'index.html')))
+    .map(d => d.name + '/index.html')
+).sort();
+const declared = Object.keys(DEPLOY).sort();
+ok('every framed page on disk is declared, so none is tested by nothing',
+   onDisk.filter(p => declared.indexOf(p) === -1).length === 0,
+   'undeclared: ' + (onDisk.filter(p => declared.indexOf(p) === -1).join(', ') || 'none'));
+ok('...and nothing is declared that was never built',
+   declared.filter(p => onDisk.indexOf(p) === -1).length === 0,
+   'missing: ' + (declared.filter(p => onDisk.indexOf(p) === -1).join(', ') || 'none'));
 const execOf = (id) => 'https://script.google.com/macros/s/' + id + '/exec';
 
 function load(page) {
