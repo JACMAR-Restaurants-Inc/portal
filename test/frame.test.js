@@ -49,6 +49,13 @@ ok('every framed page on disk is declared, so none is tested by nothing',
 ok('...and nothing is declared that was never built',
    declared.filter(p => onDisk.indexOf(p) === -1).length === 0,
    'missing: ' + (declared.filter(p => onDisk.indexOf(p) === -1).join(', ') || 'none'));
+
+// THE PAGES THE LOOPS BELOW ACTUALLY WALK. A declared page that does not exist
+// made every loop throw ENOENT, which kills the run before report() prints - so
+// the named failure above was recorded and never seen. A crash is a failure you
+// cannot read (RBAC CLAUDE.md §48, §65), and this is the third time it has come
+// up here. The loops skip what is missing; the assertion above is what names it.
+const PAGES = declared.filter(p => onDisk.indexOf(p) !== -1);
 const execOf = (id) => 'https://script.google.com/macros/s/' + id + '/exec';
 
 function load(page) {
@@ -165,7 +172,7 @@ function run(page, opts) {
 const GOOD_ORIGIN = 'https://n-abc123def-0lu-script.googleusercontent.com';
 
 // ============================================================ every page
-for (const page of Object.keys(DEPLOY)) {
+for (const page of PAGES) {
   const { html, inline } = load(page);
   const APP = execOf(DEPLOY[page]);
   const P = page + ': ';
@@ -287,7 +294,7 @@ function pngInfo(file) {
 // lives here rather than being inferred from which files happen to exist.
 const MANIFEST_REQUIRED = ['index.html'];
 
-for (const page of Object.keys(DEPLOY)) {
+for (const page of PAGES) {
   const { html } = load(page);
   const M = page + ': ';
   const link = (html.match(/<link rel="manifest" href="([^"]+)">/) || [])[1];
@@ -384,7 +391,7 @@ const ratio = (a, b) => {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 };
 
-for (const page of Object.keys(DEPLOY)) {
+for (const page of PAGES) {
   const P = page + ': ';
   const r = run(page);
   const box = r.load();
