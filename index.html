@@ -15,10 +15,20 @@
 
      apple-touch-icon is its own file, inset on an opaque ground: iOS fills a
      transparent icon with BLACK and rounds the corners off, which would eat the
-     door. apple-mobile-web-app-capable is deliberately NOT set - it would open the
-     icon with no Safari chrome, and sign-in has to leave for accounts.google.com
-     and come back. Until that round trip is tried on a real iPhone, an icon that
-     opens an ordinary Safari tab behaves exactly as the link does today. -->
+     door.
+
+     apple-mobile-web-app-capable is NOT set, and the reason first written here was
+     WRONG. It said the tag would open the icon with no Safari chrome and that
+     leaving it off kept the icon in an ordinary Safari tab. Modern iOS honours
+     "display": "standalone" from the manifest beside it, so the icon has run
+     chrome-less since the day both shipped, whatever this tag says. The round trip
+     that reasoning was avoiding is one we already had.
+
+     Tested on 2026-09-22, at the owner's hands, on an iPhone: sign-in from the icon
+     goes out to Google and comes back to the dashboard, signed in, and an external
+     link opens in an overlay with a back arrow and an X that returns to the portal.
+     So the tag stays off because it is the deprecated spelling of something the
+     manifest already does - not because it changes anything. -->
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0B2556">
 <meta name="apple-mobile-web-app-title" content="JM Portal">

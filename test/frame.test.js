@@ -333,11 +333,13 @@ for (const page of Object.keys(DEPLOY)) {
     ok(M + '...and is not the same file as the tab icon', touch !== 'jm-portal-icon.png');
   }
 
-  // Deliberate, and recorded so it is a decision rather than an omission: this would
-  // open the icon with no Safari chrome, and sign-in has to leave for Google.
-  // Comments stripped, because the comment in index.html explaining this decision has
-  // to NAME the tag it is declining to use. Same family as the innerHTML check above.
-  ok(M + 'does not claim iOS standalone until that round trip is tested',
+  // The deprecated spelling of what the manifest's "display": "standalone" already
+  // does - which modern iOS honours, so the icon runs chrome-less either way. The
+  // first version of this comment said the opposite and was wrong; the round trip it
+  // claimed to be avoiding was tested on an iPhone on 2026-09-22 and works.
+  // Comments stripped, because the comment in index.html explaining this has to NAME
+  // the tag it declines to use. Same family as the innerHTML check above.
+  ok(M + 'leaves standalone to the manifest, not the deprecated Apple tag',
      !/apple-mobile-web-app-capable/.test(html.replace(/<!--[\s\S]*?-->/g, '')));
 }
 
